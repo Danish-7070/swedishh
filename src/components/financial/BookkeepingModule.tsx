@@ -4,136 +4,124 @@ import { Card } from '../Card';
 import { Button } from '../Button';
 import { Input } from '../Input';
 import { Modal } from '../Modal';
-import { financialAPI } from '../../services/api';
+import { useFinancial } from '../../hooks/useFinancial';
+import { ValidationUtils } from '../../utils/validation';
 
 interface Account {
   id: string;
-  account_number: string;
-  account_name: string;
-  account_type: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
-  balance: number;
-  currency: string;
-  is_active: boolean;
-}
-
-export interface JournalEntry {
-  id: string;
-  foundation_id: string;
-  entry_number: string;
-  entry_date: string;
-  description: string;
-  reference_number?: string;
-  total_debit: number;
-  total_credit: number;
-  status: 'draft' | 'posted' | 'reversed';
-  created_by: string;
-  approved_by?: string;
-  approved_at?: string;
-  created_at: string;
-  updated_at: string;
-  line_items: JournalEntryLine[];
-}
-
-export interface JournalEntryLine {
-  id: string;
-  journal_entry_id: string;
-  account_id: string;
-  account_name: string;
-  description: string;
-  debit_amount: number;
-  credit_amount: number;
-  line_order: number;
-}
-
 export const BookkeepingModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'accounts' | 'journal'>('accounts');
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showJournalModal, setShowJournalModal] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<any>(null);
+  const [editingEntry, setEditingEntry] = useState<any>(null);
 
-  // Load data on component mount
-  React.useEffect(() => {
-    loadAccounts();
-    loadJournalEntries();
-  }, []);
-
-  const loadAccounts = async () => {
-    setLoading(true);
-    const response = await financialAPI.getAccounts();
-    if (response.success) {
-      setAccounts(response.data || []);
-    }
-    setLoading(false);
-  };
-
-  const loadJournalEntries = async () => {
-    setLoading(true);
-    const response = await financialAPI.getJournalEntries();
-    if (response.success) {
-      setJournalEntries(response.data || []);
-    }
-    setLoading(false);
-  };
+  // Get foundation ID from user data
+  const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+  const foundationId = '1'; // Default foundation for demo
+  
+  const {
+    accounts,
+    journalEntries,
+    loading,
+    error,
+    createAccount,
+    updateAccount,
+    deleteAccount,
+    createJournalEntry,
+    updateJournalEntry,
+    deleteJournalEntry
+  } = useFinancial(foundationId);
 
   const handleCreateAccount = async (accountData: Partial<Account>) => {
-    const response = await financialAPI.createAccount(accountData);
+    const response = await createAccount({
+      ...accountData,
+      foundation_id: foundationId
+    });
     if (response.success) {
-      await loadAccounts();
       setShowAccountModal(false);
     } else {
-      alert(response.error);
+      alert(response.error || 'Failed to create account');
     }
   };
 
   const handleUpdateAccount = async (id: string, updates: Partial<Account>) => {
-    const response = await financialAPI.updateAccount(id, updates);
+    const response = await updateAccount(id, updates);
     if (response.success) {
-      await loadAccounts();
       setEditingAccount(null);
     } else {
-      alert(response.error);
+      alert(response.error || 'Failed to update account');
     }
   };
 
   const handleDeleteAccount = async (id: string) => {
     if (confirm('Are you sure you want to delete this account?')) {
-      const response = await financialAPI.deleteAccount(id);
+      const response = await deleteAccount(id);
       if (response.success) {
-        await loadAccounts();
+        // Account list will update automatically
       } else {
-        alert(response.error);
+        alert(response.error || 'Failed to delete account');
       }
     }
   };
 
   const handleCreateJournalEntry = async (entryData: any) => {
-    const response = await financialAPI.createJournalEntry(entryData);
+    // Validate journal entry
+    const validation = ValidationUtils.validateJournalEntry(entryData.line_items);
+    if (!validation.isValid) {
+      alert(validation.error);
+      return;
+    }
+
+    const response = await createJournalEntry({
+      ...entryData,
+      foundation_id: foundationId
+    });
     if (response.success) {
-      await loadJournalEntries();
       setShowJournalModal(false);
     } else {
-      alert(response.error);
+      alert(response.error || 'Failed to create journal entry');
     }
   };
 
   const handleUpdateJournalEntry = async (id: string, updates: any) => {
-    const response = await financialAPI.updateJournalEntry(id, updates);
+    // Validate journal entry if line_items are being updated
+    if (updates.line_items) {
+      const validation = ValidationUtils.validateJournalEntry(updates.line_items);
+      if (!validation.isValid) {
+        alert(validation.error);
+        return;
+      }
+    }
+
+    const response = await updateJournalEntry(id, updates);
     if (response.success) {
-      await loadJournalEntries();
       setEditingEntry(null);
     } else {
-      alert(response.error);
+      alert(response.error || 'Failed to update journal entry');
+    }
+  };
+
+  const handleDeleteJournalEntry = async (id: string) => {
+    if (confirm('Are you sure you want to delete this journal entry?')) {
+      const response = await deleteJournalEntry(id);
+      if (response.success) {
+        // Journal entries list will update automatically
+      } else {
+        alert(response.error || 'Failed to delete journal entry');
+      }
     }
   };
 
   const filteredAccounts = accounts.filter(account =>
     account.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     account.account_number.includes(searchTerm)
+  );
+
+  const filteredJournalEntries = journalEntries.filter(entry =>
+    entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    entry.entry_number.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getAccountTypeColor = (type: string) => {
@@ -156,6 +144,19 @@ export const BookkeepingModule: React.FC = () => {
     }
   };
 
+  if (error) {
+    return (
+      <Card>
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">Error: {error}</div>
+          <Button onClick={() => window.location.reload()}>
+            Reload Page
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -168,12 +169,14 @@ export const BookkeepingModule: React.FC = () => {
             icon={Calculator} 
             variant="secondary"
             onClick={() => setShowJournalModal(true)}
+            disabled={loading}
           >
             New Journal Entry
           </Button>
           <Button 
             icon={Plus}
             onClick={() => setShowAccountModal(true)}
+            disabled={loading}
           >
             New Account
           </Button>
@@ -219,6 +222,19 @@ export const BookkeepingModule: React.FC = () => {
       {/* Chart of Accounts */}
       {activeTab === 'accounts' && (
         <Card title="Chart of Accounts" subtitle="Manage your accounting structure">
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+              <p className="text-gray-600 mt-2">Loading accounts...</p>
+            </div>
+          ) : filteredAccounts.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-600 mb-4">No accounts found</p>
+              <Button onClick={() => setShowAccountModal(true)}>
+                Create First Account
+              </Button>
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -264,7 +280,7 @@ export const BookkeepingModule: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {account.balance.toLocaleString('sv-SE')} {account.currency}
+                      {ValidationUtils.formatCurrency(account.balance, account.currency)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -280,6 +296,7 @@ export const BookkeepingModule: React.FC = () => {
                           size="sm" 
                           icon={Edit}
                           onClick={() => setEditingAccount(account)}
+                          disabled={loading}
                         >
                         </Button>
                         <Button 
@@ -287,6 +304,7 @@ export const BookkeepingModule: React.FC = () => {
                           size="sm" 
                           icon={Trash2}
                           onClick={() => handleDeleteAccount(account.id)}
+                          disabled={loading}
                         >
                         </Button>
                       </div>
@@ -296,13 +314,31 @@ export const BookkeepingModule: React.FC = () => {
               </tbody>
             </table>
           </div>
+          )}
         </Card>
       )}
 
       {/* Journal Entries */}
       {activeTab === 'journal' && (
         <div className="space-y-6">
-          {journalEntries.map((entry) => (
+          {loading ? (
+            <Card>
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+                <p className="text-gray-600 mt-2">Loading journal entries...</p>
+              </div>
+            </Card>
+          ) : filteredJournalEntries.length === 0 ? (
+            <Card>
+              <div className="text-center py-8">
+                <p className="text-gray-600 mb-4">No journal entries found</p>
+                <Button onClick={() => setShowJournalModal(true)}>
+                  Create First Journal Entry
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            filteredJournalEntries.map((entry) => (
             <Card key={entry.id}>
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -310,6 +346,7 @@ export const BookkeepingModule: React.FC = () => {
                   <p className="text-sm text-gray-600">{entry.description}</p>
                   <p className="text-xs text-gray-500 mt-1">
                     Date: {new Date(entry.entry_date).toLocaleDateString()}
+                    {entry.reference_number && ` • Ref: ${entry.reference_number}`}
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -321,6 +358,15 @@ export const BookkeepingModule: React.FC = () => {
                     size="sm" 
                     icon={Edit}
                     onClick={() => setEditingEntry(entry)}
+                    disabled={loading}
+                  >
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    icon={Trash2}
+                    onClick={() => handleDeleteJournalEntry(entry.id)}
+                    disabled={loading}
                   >
                   </Button>
                 </div>
@@ -348,7 +394,7 @@ export const BookkeepingModule: React.FC = () => {
                     {entry.line_items.map((line) => (
                       <tr key={line.id}>
                         <td className="px-4 py-2 text-sm font-medium text-gray-900">
-                          {line.account_name}
+                          {line.account_name || 'Unknown Account'}
                         </td>
                         <td className="px-4 py-2 text-sm text-gray-600">
                           {line.description}
@@ -376,7 +422,7 @@ export const BookkeepingModule: React.FC = () => {
                 </table>
               </div>
             </Card>
-          ))}
+          )))}
         </div>
       )}
 
@@ -428,8 +474,8 @@ export const BookkeepingModule: React.FC = () => {
 };
 
 const EditAccountRow: React.FC<{
-  account: Account;
-  onSave: (updates: Partial<Account>) => void;
+  account: any;
+  onSave: (updates: any) => void;
   onCancel: () => void;
 }> = ({ account, onSave, onCancel }) => {
   const [formData, setFormData] = useState({
@@ -437,17 +483,33 @@ const EditAccountRow: React.FC<{
     account_type: account.account_type,
     is_active: account.is_active
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSave = () => {
+    // Validate form
+    const newErrors: Record<string, string> = {};
+    
+    const nameValidation = ValidationUtils.validateRequired(formData.account_name, 'Account name');
+    if (!nameValidation.isValid) {
+      newErrors.account_name = nameValidation.error!;
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     onSave(formData);
   };
 
   return (
-    <div className="flex items-center space-x-2">
+    <div className="space-y-2">
+      <div className="flex items-center space-x-2">
       <input
         value={formData.account_name}
         onChange={(e) => setFormData(prev => ({ ...prev, account_name: e.target.value }))}
-        className="text-sm border rounded px-2 py-1"
+        className={`text-sm border rounded px-2 py-1 ${errors.account_name ? 'border-red-300' : ''}`}
+        placeholder="Account name"
       />
       <select
         value={formData.account_type}
@@ -460,38 +522,71 @@ const EditAccountRow: React.FC<{
         <option value="revenue">Revenue</option>
         <option value="expense">Expense</option>
       </select>
+      <label className="flex items-center space-x-1">
+        <input
+          type="checkbox"
+          checked={formData.is_active}
+          onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+          className="rounded"
+        />
+        <span className="text-xs text-gray-600">Active</span>
+      </label>
       <Button size="sm" icon={Save} onClick={handleSave} />
       <Button size="sm" variant="ghost" icon={X} onClick={onCancel} />
+      </div>
+      {errors.account_name && (
+        <p className="text-xs text-red-600">{errors.account_name}</p>
+      )}
     </div>
   );
 };
 
 const AccountForm: React.FC<{ 
-  account?: Account;
-  onSubmit: (data: Partial<Account>) => void;
+  account?: any;
+  onSubmit: (data: any) => void;
   onClose: () => void;
 }> = ({ account, onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
-    foundation_id: '', // Will be set from context
     account_number: account?.account_number || '',
     account_name: account?.account_name || '',
-    account_type: account?.account_type || '',
+    account_type: account?.account_type || 'asset',
     currency: account?.currency || 'SEK'
   });
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form
+    const newErrors: Record<string, string> = {};
+    
+    const numberValidation = ValidationUtils.validateAccountNumber(formData.account_number);
+    if (!numberValidation.isValid) {
+      newErrors.account_number = numberValidation.error!;
+    }
+    
+    const nameValidation = ValidationUtils.validateRequired(formData.account_name, 'Account name');
+    if (!nameValidation.isValid) {
+      newErrors.account_name = nameValidation.error!;
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     setLoading(true);
-    
-    // Get foundation ID from localStorage for demo
-    const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
-    const foundationId = '1'; // Default foundation for demo
-    
-    onSubmit({
-      ...formData,
-      foundation_id: foundationId
-    });
+    onSubmit(formData);
+    setLoading(false);
+  };
+
+  const handleChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
   };
 
   return (
@@ -500,8 +595,10 @@ const AccountForm: React.FC<{
         <Input
           label="Account Number"
           value={formData.account_number}
-          onChange={(e) => setFormData(prev => ({ ...prev, account_number: e.target.value }))}
+          onChange={(e) => handleChange('account_number', e.target.value)}
           placeholder="e.g., 1010"
+          error={errors.account_number}
+          helperText="4-digit account number"
           required
         />
         <div>
@@ -510,11 +607,10 @@ const AccountForm: React.FC<{
           </label>
           <select
             value={formData.account_type}
-            onChange={(e) => setFormData(prev => ({ ...prev, account_type: e.target.value }))}
+            onChange={(e) => handleChange('account_type', e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             required
           >
-            <option value="">Select Type</option>
             <option value="asset">Asset</option>
             <option value="liability">Liability</option>
             <option value="equity">Equity</option>
@@ -527,10 +623,26 @@ const AccountForm: React.FC<{
       <Input
         label="Account Name"
         value={formData.account_name}
-        onChange={(e) => setFormData(prev => ({ ...prev, account_name: e.target.value }))}
+        onChange={(e) => handleChange('account_name', e.target.value)}
         placeholder="e.g., Cash"
+        error={errors.account_name}
         required
       />
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Currency
+        </label>
+        <select
+          value={formData.currency}
+          onChange={(e) => handleChange('currency', e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        >
+          <option value="SEK">Swedish Krona (SEK)</option>
+          <option value="EUR">Euro (EUR)</option>
+          <option value="USD">US Dollar (USD)</option>
+        </select>
+      </div>
 
       <div className="flex items-center justify-end space-x-4 pt-4 border-t border-gray-200">
         <Button type="button" variant="secondary" onClick={onClose}>
@@ -545,13 +657,12 @@ const AccountForm: React.FC<{
 };
 
 const JournalEntryForm: React.FC<{ 
-  entry?: JournalEntry;
-  accounts: Account[];
+  entry?: any;
+  accounts: any[];
   onSubmit: (data: any) => void;
   onClose: () => void;
 }> = ({ entry, accounts, onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
-    foundation_id: '', // Will be set from context
     entry_date: entry?.entry_date || new Date().toISOString().split('T')[0],
     description: entry?.description || '',
     reference_number: entry?.reference_number || '',
@@ -561,11 +672,11 @@ const JournalEntryForm: React.FC<{
     ]
   });
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   React.useEffect(() => {
     if (entry) {
       setFormData({
-        foundation_id: entry.foundation_id,
         entry_date: entry.entry_date,
         description: entry.description,
         reference_number: entry.reference_number || '',
@@ -581,26 +692,33 @@ const JournalEntryForm: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     
-    // Get foundation ID from localStorage for demo
-    const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
-    const foundationId = '1'; // Default foundation for demo
+    // Validate form
+    const newErrors: Record<string, string> = {};
     
-    // Validate that debits equal credits
-    const totalDebits = formData.line_items.reduce((sum, item) => sum + (item.debit_amount || 0), 0);
-    const totalCredits = formData.line_items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
+    const descValidation = ValidationUtils.validateRequired(formData.description, 'Description');
+    if (!descValidation.isValid) {
+      newErrors.description = descValidation.error!;
+    }
     
-    if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      alert('Debits must equal credits');
-      setLoading(false);
+    const dateValidation = ValidationUtils.validateDate(formData.entry_date);
+    if (!dateValidation.isValid) {
+      newErrors.entry_date = dateValidation.error!;
+    }
+    
+    const journalValidation = ValidationUtils.validateJournalEntry(formData.line_items);
+    if (!journalValidation.isValid) {
+      newErrors.line_items = journalValidation.error!;
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
     
-    onSubmit({
-      ...formData,
-      foundation_id: foundationId
-    });
+    setLoading(true);
+    onSubmit(formData);
+    setLoading(false);
   };
 
   const addLineItem = () => {
@@ -620,6 +738,11 @@ const JournalEntryForm: React.FC<{
   };
 
   const updateLineItem = (index: number, field: string, value: any) => {
+    // Clear line items error when user makes changes
+    if (errors.line_items) {
+      setErrors(prev => ({ ...prev, line_items: '' }));
+    }
+    
     setFormData(prev => ({
       ...prev,
       line_items: prev.line_items.map((item, i) => 
@@ -639,24 +762,39 @@ const JournalEntryForm: React.FC<{
           label="Entry Date"
           type="date"
           value={formData.entry_date}
-          onChange={(e) => setFormData(prev => ({ ...prev, entry_date: e.target.value }))}
+          onChange={(e) => {
+            setFormData(prev => ({ ...prev, entry_date: e.target.value }));
+            if (errors.entry_date) {
+              setErrors(prev => ({ ...prev, entry_date: '' }));
+            }
+          }}
+          error={errors.entry_date}
           required
         />
-        <div className="space-y-1">
+        <div>
           <Input
-          label="Description"
-          value={formData.description}
-          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-          placeholder="Journal entry description"
-          required
+            label="Description"
+            value={formData.description}
+            onChange={(e) => {
+              setFormData(prev => ({ ...prev, description: e.target.value }));
+              if (errors.description) {
+                setErrors(prev => ({ ...prev, description: '' }));
+              }
+            }}
+            placeholder="Journal entry description"
+            error={errors.description}
+            required
           />
+        </div>
+      </div>
+      
+      <div>
           <Input
             label="Reference Number (Optional)"
             value={formData.reference_number}
             onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
             placeholder="Reference number"
           />
-        </div>
       </div>
 
       <div>
@@ -673,6 +811,10 @@ const JournalEntryForm: React.FC<{
             </div>
           </div>
         </div>
+        
+        {errors.line_items && (
+          <div className="text-sm text-red-600 mb-2">{errors.line_items}</div>
+        )}
         
         <div className="space-y-2 max-h-60 overflow-y-auto">
           {formData.line_items.map((line, index) => (
@@ -695,10 +837,12 @@ const JournalEntryForm: React.FC<{
                 className="px-2 py-1 border rounded text-sm"
                 value={line.description}
                 onChange={(e) => updateLineItem(index, 'description', e.target.value)}
+                required
               />
               <input
                 type="number"
                 step="0.01"
+                min="0"
                 placeholder="Debit"
                 className="px-2 py-1 border rounded text-sm"
                 value={line.debit_amount || ''}
@@ -707,6 +851,7 @@ const JournalEntryForm: React.FC<{
               <input
                 type="number"
                 step="0.01"
+                min="0"
                 placeholder="Credit"
                 className="px-2 py-1 border rounded text-sm"
                 value={line.credit_amount || ''}

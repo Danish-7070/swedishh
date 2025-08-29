@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Plus, Search, Eye, Receipt, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Plus, Search, Eye, Receipt, CheckCircle, Clock, XCircle, Edit, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Modal } from '../components/Modal';
-import { mockExpenses, mockFoundations } from '../data/mockData';
+import { useExpenses } from '../hooks/useExpenses';
+import { foundationAPI } from '../services/api';
+import { ValidationUtils } from '../utils/validation';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
 
@@ -15,14 +17,44 @@ export const ExpensesPage: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [foundationFilter, setFoundationFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState<any>(null);
+  const [foundations, setFoundations] = useState<any[]>([]);
 
-  const filteredExpenses = mockExpenses.filter(expense => {
+  // Get user data for role checking
+  const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+  const userRole = userData.role || 'member';
+  const canApprove = userRole === 'admin' || userRole === 'foundation_owner';
+
+  const {
+    expenses,
+    loading,
+    error,
+    createExpense,
+    updateExpense,
+    deleteExpense,
+    approveExpense,
+    rejectExpense
+  } = useExpenses(foundationFilter === 'all' ? undefined : foundationFilter);
+
+  // Load foundations on component mount
+  React.useEffect(() => {
+    loadFoundations();
+  }, []);
+
+  const loadFoundations = async () => {
+    const response = await foundationAPI.getFoundations();
+    if (response.success) {
+      setFoundations(response.data || []);
+    }
+  };
+
+  const filteredExpenses = expenses.filter(expense => {
     const matchesSearch = expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          expense.category.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || expense.status === statusFilter;
     const matchesCategory = categoryFilter === 'all' || expense.category === categoryFilter;
-    const matchesFoundation = foundationFilter === 'all' || expense.foundation_id === foundationFilter;
-    return matchesSearch && matchesStatus && matchesCategory && matchesFoundation;
+    return matchesSearch && matchesStatus && matchesCategory;
   });
 
   const getStatusIcon = (status: string) => {
@@ -55,7 +87,58 @@ export const ExpensesPage: React.FC = () => {
     return category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  const handleCreateExpense = async (expenseData: any) => {
+    const response = await createExpense(expenseData);
+    if (response.success) {
+      setShowCreateModal(false);
+    } else {
+      alert(response.error || 'Failed to create expense');
+    }
+  };
+
+  const handleApproveExpense = async (id: string) => {
+    const response = await approveExpense(id);
+    if (response.success) {
+      setShowApprovalModal(false);
+      setSelectedExpense(null);
+    } else {
+      alert(response.error || 'Failed to approve expense');
+    }
+  };
+
+  const handleRejectExpense = async (id: string, reason: string) => {
+    const response = await rejectExpense(id, reason);
+    if (response.success) {
+      setShowApprovalModal(false);
+      setSelectedExpense(null);
+    } else {
+      alert(response.error || 'Failed to reject expense');
+    }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    if (confirm('Are you sure you want to delete this expense?')) {
+      const response = await deleteExpense(id);
+      if (!response.success) {
+        alert(response.error || 'Failed to delete expense');
+      }
+    }
+  };
+
   const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  if (error) {
+    return (
+      <Card>
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">Error: {error}</div>
+          <Button onClick={() => window.location.reload()}>
+            Reload Page
+          </Button>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -81,7 +164,7 @@ export const ExpensesPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Expenses</p>
               <p className="text-2xl font-bold text-gray-900">
-                {totalExpenses.toLocaleString('sv-SE')} SEK
+                {ValidationUtils.formatCurrency(totalExpenses)}
               </p>
             </div>
           </div>
@@ -154,7 +237,7 @@ export const ExpensesPage: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="all">All Foundations</option>
-              {mockFoundations.map((foundation) => (
+              {foundations.map((foundation) => (
                 <option key={foundation.id} value={foundation.id}>
                   {foundation.name}
                 </option>
@@ -193,48 +276,14 @@ export const ExpensesPage: React.FC = () => {
       </Card>
 
       {/* Expenses List */}
-      <div className="grid grid-cols-1 gap-4">
-        {filteredExpenses.map((expense) => {
-          const foundation = mockFoundations.find(f => f.id === expense.foundation_id);
-          return (
-            <Card key={expense.id}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  {getStatusIcon(expense.status)}
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">{expense.description}</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {getCategoryLabel(expense.category)} • {foundation?.name}
-                    </p>
-                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                      <span>Date: {new Date(expense.expense_date).toLocaleDateString()}</span>
-                      <span>Submitted: {new Date(expense.created_at).toLocaleDateString()}</span>
-                      {expense.receipt_url && <span>📎 Receipt attached</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-right">
-                    <p className="text-xl font-bold text-gray-900">
-                      {expense.amount.toLocaleString('sv-SE')} {expense.currency}
-                    </p>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(expense.status)}`}>
-                      {expense.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Button variant="ghost" size="sm" icon={Eye}>
-                      View
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      {filteredExpenses.length === 0 && (
+      {loading ? (
+        <Card>
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+            <p className="text-gray-600 mt-2">Loading expenses...</p>
+          </div>
+        </Card>
+      ) : filteredExpenses.length === 0 ? (
         <Card>
           <div className="text-center py-12">
             <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
@@ -254,6 +303,79 @@ export const ExpensesPage: React.FC = () => {
             )}
           </div>
         </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+        {filteredExpenses.map((expense) => {
+          return (
+            <Card key={expense.id}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  {getStatusIcon(expense.status)}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900">{expense.description}</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {getCategoryLabel(expense.category)} • {expense.foundations?.name || 'Unknown Foundation'}
+                    </p>
+                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                      <span>Date: {new Date(expense.expense_date).toLocaleDateString()}</span>
+                      <span>Submitted: {new Date(expense.created_at).toLocaleDateString()}</span>
+                      {expense.receipt_url && <span>📎 Receipt attached</span>}
+                      <span>By: {expense.profiles?.full_name || 'Unknown User'}</span>
+                    </div>
+                    {expense.rejection_reason && (
+                      <div className="mt-2 p-2 bg-red-50 rounded text-sm text-red-700">
+                        <strong>Rejection reason:</strong> {expense.rejection_reason}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-gray-900">
+                      {ValidationUtils.formatCurrency(expense.amount, expense.currency)}
+                    </p>
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(expense.status)}`}>
+                      {expense.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button variant="ghost" size="sm" icon={Eye}>
+                      View
+                    </Button>
+                    {canApprove && expense.status === 'pending' && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                          setSelectedExpense(expense);
+                          setShowApprovalModal(true);
+                        }}
+                      >
+                        Review
+                      </Button>
+                    )}
+                    {(expense.user_id === userData.id && expense.status === 'pending') && (
+                      <>
+                        <Button variant="ghost" size="sm" icon={Edit}>
+                          Edit
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          icon={Trash2}
+                          onClick={() => handleDeleteExpense(expense.id)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+        </div>
       )}
 
       {/* Expense Analytics Charts */}
@@ -263,13 +385,17 @@ export const ExpensesPage: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={[
-                    { name: 'Office Supplies', value: 25000, color: '#3B82F6' },
-                    { name: 'Travel', value: 15000, color: '#10B981' },
-                    { name: 'Professional Services', value: 35000, color: '#F59E0B' },
-                    { name: 'Utilities', value: 8000, color: '#EF4444' },
-                    { name: 'Marketing', value: 12000, color: '#8B5CF6' }
-                  ]}
+                  data={Object.entries(
+                    filteredExpenses.reduce((acc, expense) => {
+                      const category = getCategoryLabel(expense.category);
+                      acc[category] = (acc[category] || 0) + expense.amount;
+                      return acc;
+                    }, {} as Record<string, number>)
+                  ).map(([name, value], index) => ({
+                    name,
+                    value,
+                    color: COLORS[index % COLORS.length]
+                  }))}
                   cx="50%"
                   cy="50%"
                   outerRadius={80}
@@ -277,13 +403,13 @@ export const ExpensesPage: React.FC = () => {
                   dataKey="value"
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
-                  {[
-                    { name: 'Office Supplies', value: 25000, color: '#3B82F6' },
-                    { name: 'Travel', value: 15000, color: '#10B981' },
-                    { name: 'Professional Services', value: 35000, color: '#F59E0B' },
-                    { name: 'Utilities', value: 8000, color: '#EF4444' },
-                    { name: 'Marketing', value: 12000, color: '#8B5CF6' }
-                  ].map((entry, index) => (
+                  {Object.entries(
+                    filteredExpenses.reduce((acc, expense) => {
+                      const category = getCategoryLabel(expense.category);
+                      acc[category] = (acc[category] || 0) + expense.amount;
+                      return acc;
+                    }, {} as Record<string, number>)
+                  ).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -323,13 +449,38 @@ export const ExpensesPage: React.FC = () => {
         title="Add Expense"
         size="lg"
       >
-        <ExpenseForm onClose={() => setShowCreateModal(false)} />
+        <ExpenseForm 
+          foundations={foundations}
+          onSubmit={handleCreateExpense}
+          onClose={() => setShowCreateModal(false)} 
+        />
+      </Modal>
+
+      {/* Approval Modal */}
+      <Modal
+        isOpen={showApprovalModal}
+        onClose={() => setShowApprovalModal(false)}
+        title="Review Expense"
+        size="md"
+      >
+        {selectedExpense && (
+          <ExpenseApprovalForm
+            expense={selectedExpense}
+            onApprove={() => handleApproveExpense(selectedExpense.id)}
+            onReject={(reason) => handleRejectExpense(selectedExpense.id, reason)}
+            onClose={() => setShowApprovalModal(false)}
+          />
+        )}
       </Modal>
     </div>
   );
 };
 
-const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const ExpenseForm: React.FC<{ 
+  foundations: any[];
+  onSubmit: (data: any) => void;
+  onClose: () => void;
+}> = ({ foundations, onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
     foundation_id: '',
     amount: '',
@@ -340,16 +491,51 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     receipt: null as File | null
   });
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.foundation_id) {
+      newErrors.foundation_id = 'Foundation is required';
+    }
+    
+    const amountValidation = ValidationUtils.validateCurrency(formData.amount);
+    if (!amountValidation.isValid) {
+      newErrors.amount = amountValidation.error!;
+    }
+    
+    const descValidation = ValidationUtils.validateRequired(formData.description, 'Description');
+    if (!descValidation.isValid) {
+      newErrors.description = descValidation.error!;
+    }
+    
+    const dateValidation = ValidationUtils.validateDate(formData.expense_date);
+    if (!dateValidation.isValid) {
+      newErrors.expense_date = dateValidation.error!;
+    }
+    
+    if (!formData.category) {
+      newErrors.category = 'Category is required';
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     setLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      onClose();
-    }, 1000);
+    const expenseData = {
+      ...formData,
+      amount: parseFloat(formData.amount)
+    };
+    
+    onSubmit(expenseData);
+    setLoading(false);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -357,6 +543,14 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       ...prev,
       [e.target.name]: e.target.value
     }));
+    
+    // Clear error when user starts typing
+    if (errors[e.target.name]) {
+      setErrors(prev => ({
+        ...prev,
+        [e.target.name]: ''
+      }));
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -375,16 +569,21 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             name="foundation_id"
             value={formData.foundation_id}
             onChange={handleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+              errors.foundation_id ? 'border-red-300' : 'border-gray-300'
+            }`}
             required
           >
             <option value="">Select Foundation</option>
-            {mockFoundations.map((foundation) => (
+            {foundations.map((foundation) => (
               <option key={foundation.id} value={foundation.id}>
                 {foundation.name}
               </option>
             ))}
           </select>
+          {errors.foundation_id && (
+            <p className="text-sm text-red-600 mt-1">{errors.foundation_id}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -393,9 +592,11 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             name="amount"
             type="number"
             step="0.01"
+            min="0.01"
             value={formData.amount}
             onChange={handleChange}
             placeholder="0.00"
+            error={errors.amount}
             required
           />
           <div>
@@ -425,7 +626,9 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             name="category"
             value={formData.category}
             onChange={handleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+              errors.category ? 'border-red-300' : 'border-gray-300'
+            }`}
             required
           >
             <option value="">Select Category</option>
@@ -437,6 +640,9 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <option value="marketing">Marketing</option>
             <option value="other">Other</option>
           </select>
+          {errors.category && (
+            <p className="text-sm text-red-600 mt-1">{errors.category}</p>
+          )}
         </div>
 
         <Input
@@ -445,6 +651,7 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           type="date"
           value={formData.expense_date}
           onChange={handleChange}
+          error={errors.expense_date}
           required
         />
       </div>
@@ -455,6 +662,7 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         value={formData.description}
         onChange={handleChange}
         placeholder="Brief description of the expense"
+        error={errors.description}
         required
       />
 
@@ -479,6 +687,115 @@ const ExpenseForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </Button>
         <Button type="submit" loading={loading}>
           Add Expense
+        </Button>
+      </div>
+    </form>
+  );
+};
+
+const ExpenseApprovalForm: React.FC<{
+  expense: any;
+  onApprove: () => void;
+  onReject: (reason: string) => void;
+  onClose: () => void;
+}> = ({ expense, onApprove, onReject, onClose }) => {
+  const [action, setAction] = useState<'approve' | 'reject'>('approve');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (action === 'reject' && !rejectionReason.trim()) {
+      alert('Please provide a rejection reason');
+      return;
+    }
+    
+    setLoading(true);
+    
+    if (action === 'approve') {
+      onApprove();
+    } else {
+      onReject(rejectionReason);
+    }
+    
+    setLoading(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">{expense.description}</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="font-medium text-gray-600">Amount:</span>
+            <span className="ml-2">{ValidationUtils.formatCurrency(expense.amount, expense.currency)}</span>
+          </div>
+          <div>
+            <span className="font-medium text-gray-600">Category:</span>
+            <span className="ml-2">{expense.category.replace(/_/g, ' ')}</span>
+          </div>
+          <div>
+            <span className="font-medium text-gray-600">Date:</span>
+            <span className="ml-2">{new Date(expense.expense_date).toLocaleDateString()}</span>
+          </div>
+          <div>
+            <span className="font-medium text-gray-600">Submitted by:</span>
+            <span className="ml-2">{expense.profiles?.full_name || 'Unknown'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Decision
+        </label>
+        <div className="space-y-2">
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="approve"
+              checked={action === 'approve'}
+              onChange={(e) => setAction(e.target.value as 'approve')}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Approve Expense</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="reject"
+              checked={action === 'reject'}
+              onChange={(e) => setAction(e.target.value as 'reject')}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Reject Expense</span>
+          </label>
+        </div>
+      </div>
+
+      {action === 'reject' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Rejection Reason
+          </label>
+          <textarea
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            placeholder="Please provide a reason for rejection..."
+            required
+          />
+        </div>
+      )}
+
+      <div className="flex items-center justify-end space-x-4 pt-4 border-t border-gray-200">
+        <Button type="button" variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={loading} variant={action === 'reject' ? 'danger' : 'primary'}>
+          {action === 'approve' ? 'Approve' : 'Reject'} Expense
         </Button>
       </div>
     </form>

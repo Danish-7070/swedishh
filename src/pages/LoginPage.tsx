@@ -5,79 +5,82 @@ import { Mail, Lock } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { getDefaultRoute } from '../utils/permissions';
+import { useAuth } from '../hooks/useAuth';
+import { ValidationUtils } from '../utils/validation';
 
-interface LoginPageProps {
-  onLogin: (role?: string) => void;
-}
-
-export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
+export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setErrors({});
+    
+    // Validate form
+    const newErrors: Record<string, string> = {};
+    
+    const emailValidation = ValidationUtils.validateEmail(formData.email);
+    if (!emailValidation.isValid) {
+      newErrors.email = emailValidation.error!;
+    }
+    
+    const passwordValidation = ValidationUtils.validatePassword(formData.password);
+    if (!passwordValidation.isValid) {
+      newErrors.password = passwordValidation.error!;
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     setLoading(true);
     
     try {
-      // Simulate API call with role-based authentication
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Invalid credentials');
-      }
-
-      const data = await response.json();
-      setLoading(false);
+      const response = await login(formData.email, formData.password);
       
-      // Store session data
-      localStorage.setItem('auth_token', data.session.access_token);
-      localStorage.setItem('user_data', JSON.stringify(data.user));
-      
-      onLogin(data.user.role);
-    } catch (err) {
-      setLoading(false);
-      
-      // For demo purposes, allow mock login with predefined credentials
-      const mockCredentials = [
-        { email: 'admin@example.com', password: 'AdminPass123', role: 'admin' },
-        { email: 'manager@example.com', password: 'ManagerPass123', role: 'foundation_owner' },
-        { email: 'developer@example.com', password: 'DevPass123', role: 'member' }
-      ];
-      
-      const mockUser = mockCredentials.find(
-        cred => cred.email === formData.email && cred.password === formData.password
-      );
-      
-      if (mockUser) {
-        // Mock successful login
-        localStorage.setItem('auth_token', 'mock_token_' + mockUser.role);
-        localStorage.setItem('user_data', JSON.stringify({
-          id: 'mock_' + mockUser.role,
-          email: mockUser.email,
-          role: mockUser.role,
-          full_name: mockUser.role === 'admin' ? 'System Administrator' :
-                     mockUser.role === 'foundation_owner' ? 'Foundation Manager' :
-                     'Developer User'
-        }));
-        onLogin(mockUser.role);
-        
-        // Navigate to role-specific dashboard
-        navigate(getDefaultRoute(mockUser.role));
+      if (response.success) {
+        navigate(getDefaultRoute(response.data.user.role));
       } else {
-        setError('Invalid email or password. Try the demo credentials.');
+        // Try demo credentials as fallback
+        const mockCredentials = [
+          { email: 'admin@example.com', password: 'AdminPass123', role: 'admin' },
+          { email: 'manager@example.com', password: 'ManagerPass123', role: 'foundation_owner' },
+          { email: 'developer@example.com', password: 'DevPass123', role: 'member' }
+        ];
+        
+        const mockUser = mockCredentials.find(
+          cred => cred.email === formData.email && cred.password === formData.password
+        );
+        
+        if (mockUser) {
+          // Mock successful login
+          localStorage.setItem('auth_token', 'mock_token_' + mockUser.role);
+          localStorage.setItem('user_data', JSON.stringify({
+            id: 'mock_' + mockUser.role,
+            email: mockUser.email,
+            role: mockUser.role,
+            full_name: mockUser.role === 'admin' ? 'System Administrator' :
+                       mockUser.role === 'foundation_owner' ? 'Foundation Manager' :
+                       'Developer User'
+          }));
+          
+          navigate(getDefaultRoute(mockUser.role));
+          window.location.reload(); // Force reload to update auth state
+        } else {
+          setErrors({ email: 'Invalid email or password. Try the demo credentials.' });
+        }
       }
+    } catch (err) {
+      setErrors({ email: 'Login failed. Please try again.' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -86,6 +89,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       ...prev,
       [e.target.name]: e.target.value
     }));
+    
+    // Clear errors when user starts typing
+    if (errors[e.target.name]) {
+      setErrors(prev => ({
+        ...prev,
+        [e.target.name]: ''
+      }));
+    }
   };
 
   return (
@@ -98,7 +109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           value={formData.email}
           onChange={handleChange}
           icon={Mail}
-          error={error}
+          error={errors.email}
           required
           placeholder="Enter your email"
         />
@@ -110,6 +121,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           value={formData.password}
           onChange={handleChange}
           icon={Lock}
+          error={errors.password}
           required
           placeholder="Enter your password"
         />

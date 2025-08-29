@@ -5,20 +5,69 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Modal } from '../components/Modal';
-import { mockMeetings, mockFoundations } from '../data/mockData';
+import { meetingAPI, foundationAPI } from '../services/api';
+import { canCreateMeetings } from '../utils/permissions';
+import { ValidationUtils } from '../utils/validation';
 
 export const MeetingsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [foundationFilter, setFoundationFilter] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [foundations, setFoundations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredMeetings = mockMeetings.filter(meeting => {
+  // Get user role for permissions
+  const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+  const userRole = userData.role || 'member';
+  const canCreate = canCreateMeetings(userRole);
+
+  React.useEffect(() => {
+    loadMeetings();
+    loadFoundations();
+  }, [foundationFilter]);
+
+  const loadMeetings = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await meetingAPI.getMeetings(foundationFilter === 'all' ? undefined : foundationFilter);
+      if (response.success) {
+        setMeetings(response.data || []);
+      } else {
+        setError(response.error || 'Failed to load meetings');
+      }
+    } catch (err) {
+      setError('Failed to load meetings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFoundations = async () => {
+    const response = await foundationAPI.getFoundations();
+    if (response.success) {
+      setFoundations(response.data || []);
+    }
+  };
+
+  const handleCreateMeeting = async (meetingData: any) => {
+    const response = await meetingAPI.createMeeting(meetingData);
+    if (response.success) {
+      setShowCreateModal(false);
+      await loadMeetings();
+    } else {
+      alert(response.error || 'Failed to create meeting');
+    }
+  };
+
+  const filteredMeetings = meetings.filter(meeting => {
     const matchesSearch = meeting.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          meeting.description?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || meeting.status === statusFilter;
-    const matchesFoundation = foundationFilter === 'all' || meeting.foundation_id === foundationFilter;
-    return matchesSearch && matchesStatus && matchesFoundation;
+    return matchesSearch && matchesStatus;
   });
 
   const getStatusColor = (status: string) => {
@@ -40,6 +89,19 @@ export const MeetingsPage: React.FC = () => {
     return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  if (error) {
+    return (
+      <Card>
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">Error: {error}</div>
+          <Button onClick={() => window.location.reload()}>
+            Reload Page
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -47,10 +109,29 @@ export const MeetingsPage: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Meetings</h1>
           <p className="text-gray-600 mt-1">Schedule and manage foundation meetings.</p>
         </div>
-        <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
-          Schedule Meeting
-        </Button>
+        {canCreate ? (
+          <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+            Schedule Meeting
+          </Button>
+        ) : (
+          <div className="text-sm text-gray-500">
+            View only access
+          </div>
+        )}
       </div>
+
+      {!canCreate && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+            <h3 className="text-sm font-medium text-yellow-900">Limited Access</h3>
+          </div>
+          <p className="text-sm text-yellow-700 mt-1">
+            As a member, you can view meeting schedules but cannot create or manage meetings. 
+            Contact your foundation administrator for meeting management access.
+          </p>
+        </div>
+      )}
 
       {/* Filters */}
       <Card>
@@ -70,7 +151,7 @@ export const MeetingsPage: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="all">All Foundations</option>
-              {mockFoundations.map((foundation) => (
+              {foundations.map((foundation) => (
                 <option key={foundation.id} value={foundation.id}>
                   {foundation.name}
                 </option>
@@ -94,15 +175,44 @@ export const MeetingsPage: React.FC = () => {
       </Card>
 
       {/* Meetings List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {loading ? (
+        <Card>
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+            <p className="text-gray-600 mt-2">Loading meetings...</p>
+          </div>
+        </Card>
+      ) : filteredMeetings.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Calendar className="w-6 h-6 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No meetings found</h3>
+            <p className="text-gray-600 mb-4">
+              {searchTerm || statusFilter !== 'all' || foundationFilter !== 'all'
+                ? 'Try adjusting your search or filter criteria.'
+                : canCreate 
+                  ? 'Get started by scheduling your first meeting.'
+                  : 'No meetings have been scheduled yet.'
+              }
+            </p>
+            {!searchTerm && statusFilter === 'all' && foundationFilter === 'all' && canCreate && (
+              <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+                Schedule Meeting
+              </Button>
+            )}
+          </div>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filteredMeetings.map((meeting) => {
-          const foundation = mockFoundations.find(f => f.id === meeting.foundation_id);
           return (
             <Card key={meeting.id}>
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-gray-900">{meeting.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{foundation?.name}</p>
+                  <p className="text-sm text-gray-600 mt-1">{meeting.foundations?.name || 'Unknown Foundation'}</p>
                   {meeting.description && (
                     <p className="text-sm text-gray-700 mt-2">{meeting.description}</p>
                   )}
@@ -132,11 +242,15 @@ export const MeetingsPage: React.FC = () => {
                 )}
                 <div className="flex items-center">
                   <Users className="w-4 h-4 mr-2" />
-                  <span>{meeting.attendees.length} attendees</span>
+                  <span>{meeting.attendees?.length || 0} attendees</span>
                 </div>
                 <div className="flex items-center">
                   <span className="w-4 h-4 mr-2 text-xs">📋</span>
                   <span>{getMeetingTypeLabel(meeting.meeting_type)}</span>
+                </div>
+                <div className="flex items-center">
+                  <span className="w-4 h-4 mr-2 text-xs">👤</span>
+                  <span>Organized by: {meeting.profiles?.full_name || 'Unknown'}</span>
                 </div>
               </div>
               
@@ -144,35 +258,16 @@ export const MeetingsPage: React.FC = () => {
                 <Button variant="ghost" size="sm" icon={Eye}>
                   View Details
                 </Button>
-                <Button variant="ghost" size="sm" icon={Edit}>
-                  Edit
-                </Button>
+                {canCreate && (
+                  <Button variant="ghost" size="sm" icon={Edit}>
+                    Edit
+                  </Button>
+                )}
               </div>
             </Card>
           );
         })}
-      </div>
-
-      {filteredMeetings.length === 0 && (
-        <Card>
-          <div className="text-center py-12">
-            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Calendar className="w-6 h-6 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No meetings found</h3>
-            <p className="text-gray-600 mb-4">
-              {searchTerm || statusFilter !== 'all' || foundationFilter !== 'all'
-                ? 'Try adjusting your search or filter criteria.'
-                : 'Get started by scheduling your first meeting.'
-              }
-            </p>
-            {!searchTerm && statusFilter === 'all' && foundationFilter === 'all' && (
-              <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
-                Schedule Meeting
-              </Button>
-            )}
-          </div>
-        </Card>
+        </div>
       )}
 
       {/* Meeting Analytics */}
@@ -224,19 +319,29 @@ export const MeetingsPage: React.FC = () => {
       </div>
 
       {/* Create Meeting Modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title="Schedule Meeting"
-        size="lg"
-      >
-        <MeetingForm onClose={() => setShowCreateModal(false)} />
-      </Modal>
+      {canCreate && (
+        <Modal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          title="Schedule Meeting"
+          size="lg"
+        >
+          <MeetingForm 
+            foundations={foundations}
+            onSubmit={handleCreateMeeting}
+            onClose={() => setShowCreateModal(false)} 
+          />
+        </Modal>
+      )}
     </div>
   );
 };
 
-const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const MeetingForm: React.FC<{ 
+  foundations: any[];
+  onSubmit: (data: any) => void;
+  onClose: () => void;
+}> = ({ foundations, onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
     foundation_id: '',
     title: '',
@@ -248,16 +353,65 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     meeting_type: 'board_meeting'
   });
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.foundation_id) {
+      newErrors.foundation_id = 'Foundation is required';
+    }
+    
+    const titleValidation = ValidationUtils.validateRequired(formData.title, 'Meeting title');
+    if (!titleValidation.isValid) {
+      newErrors.title = titleValidation.error!;
+    }
+    
+    const dateValidation = ValidationUtils.validateDate(formData.start_date);
+    if (!dateValidation.isValid) {
+      newErrors.start_date = dateValidation.error!;
+    }
+    
+    if (!formData.start_time) {
+      newErrors.start_time = 'Start time is required';
+    }
+    
+    if (!formData.end_time) {
+      newErrors.end_time = 'End time is required';
+    }
+    
+    // Validate time range
+    if (formData.start_time && formData.end_time) {
+      const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`);
+      const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`);
+      
+      if (endDateTime <= startDateTime) {
+        newErrors.end_time = 'End time must be after start time';
+      }
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     setLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      onClose();
-    }, 1000);
+    // Combine date and time
+    const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`).toISOString();
+    const endDateTime = new Date(`${formData.start_date}T${formData.end_time}`).toISOString();
+    
+    const meetingData = {
+      ...formData,
+      start_time: startDateTime,
+      end_time: endDateTime
+    };
+    
+    onSubmit(meetingData);
+    setLoading(false);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -265,6 +419,14 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       ...prev,
       [e.target.name]: e.target.value
     }));
+    
+    // Clear error when user starts typing
+    if (errors[e.target.name]) {
+      setErrors(prev => ({
+        ...prev,
+        [e.target.name]: ''
+      }));
+    }
   };
 
   return (
@@ -277,16 +439,21 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           name="foundation_id"
           value={formData.foundation_id}
           onChange={handleChange}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+            errors.foundation_id ? 'border-red-300' : 'border-gray-300'
+          }`}
           required
         >
           <option value="">Select Foundation</option>
-          {mockFoundations.map((foundation) => (
+          {foundations.map((foundation) => (
             <option key={foundation.id} value={foundation.id}>
               {foundation.name}
             </option>
           ))}
         </select>
+        {errors.foundation_id && (
+          <p className="text-sm text-red-600 mt-1">{errors.foundation_id}</p>
+        )}
       </div>
 
       <Input
@@ -295,6 +462,7 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         value={formData.title}
         onChange={handleChange}
         placeholder="Enter meeting title"
+        error={errors.title}
         required
       />
 
@@ -319,6 +487,8 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           type="date"
           value={formData.start_date}
           onChange={handleChange}
+          error={errors.start_date}
+          min={new Date().toISOString().split('T')[0]}
           required
         />
         <Input
@@ -327,6 +497,7 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           type="time"
           value={formData.start_time}
           onChange={handleChange}
+          error={errors.start_time}
           required
         />
         <Input
@@ -335,6 +506,7 @@ const MeetingForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           type="time"
           value={formData.end_time}
           onChange={handleChange}
+          error={errors.end_time}
           required
         />
       </div>

@@ -2,16 +2,21 @@ import React, { useState } from 'react';
 import { Calculator, FileText, CreditCard, Users, Shield, Building, TrendingUp, DollarSign } from 'lucide-react';
 import { Card } from '../components/Card';
 import { BookkeepingModule } from '../components/financial/BookkeepingModule';
-import { InvoicingModule } from '../components/financial/InvoicingModule';
-import { SupplierInvoiceApproval } from '../components/financial/SupplierInvoiceApproval';
-import { BankIDAuthentication } from '../components/financial/BankIDAuthentication';
-import { PayrollModule } from '../components/financial/PayrollModule';
-import { BankIntegration } from '../components/financial/BankIntegration';
+import { useFinancial } from '../hooks/useFinancial';
+import { useExpenses } from '../hooks/useExpenses';
+import { ValidationUtils } from '../utils/validation';
 
 type FinancialTab = 'overview' | 'bookkeeping' | 'invoicing' | 'supplier-invoices' | 'payroll' | 'bank-integration' | 'bankid' | 'expense-management';
 
 export const FinancialPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<FinancialTab>('overview');
+  
+  // Get foundation ID from user data
+  const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+  const foundationId = '1'; // Default foundation for demo
+  
+  const { accounts, journalEntries } = useFinancial(foundationId);
+  const { expenses } = useExpenses(foundationId);
 
   const tabs = [
     { id: 'overview', name: 'Overview', icon: TrendingUp },
@@ -23,20 +28,10 @@ export const FinancialPage: React.FC = () => {
     switch (activeTab) {
       case 'bookkeeping':
         return <BookkeepingModule />;
-      case 'invoicing':
-        return <InvoicingModule />;
-      case 'supplier-invoices':
-        return <SupplierInvoiceApproval />;
-      case 'payroll':
-        return <PayrollModule />;
-      case 'bank-integration':
-        return <BankIntegration />;
-      case 'bankid':
-        return <BankIDAuthentication />;
       case 'expense-management':
-        return <ExpenseManagementPlaceholder />;
+        return <ExpenseManagementModule expenses={expenses} />;
       default:
-        return <FinancialOverview />;
+        return <FinancialOverview accounts={accounts} journalEntries={journalEntries} expenses={expenses} />;
     }
   };
 
@@ -78,7 +73,35 @@ export const FinancialPage: React.FC = () => {
   );
 };
 
-const FinancialOverview: React.FC = () => {
+const FinancialOverview: React.FC<{
+  accounts: any[];
+  journalEntries: any[];
+  expenses: any[];
+}> = ({ accounts, journalEntries, expenses }) => {
+  // Calculate real financial metrics
+  const totalAssets = accounts
+    .filter(acc => acc.account_type === 'asset')
+    .reduce((sum, acc) => sum + acc.balance, 0);
+    
+  const totalLiabilities = accounts
+    .filter(acc => acc.account_type === 'liability')
+    .reduce((sum, acc) => sum + acc.balance, 0);
+    
+  const totalEquity = accounts
+    .filter(acc => acc.account_type === 'equity')
+    .reduce((sum, acc) => sum + acc.balance, 0);
+    
+  const totalRevenue = accounts
+    .filter(acc => acc.account_type === 'revenue')
+    .reduce((sum, acc) => sum + acc.balance, 0);
+    
+  const totalExpenseAccounts = accounts
+    .filter(acc => acc.account_type === 'expense')
+    .reduce((sum, acc) => sum + acc.balance, 0);
+    
+  const pendingExpenses = expenses.filter(exp => exp.status === 'pending').length;
+  const totalExpenseAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+
   return (
     <div className="space-y-6">
       {/* Key Metrics */}
@@ -92,7 +115,9 @@ const FinancialOverview: React.FC = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Assets</p>
-              <p className="text-2xl font-bold text-gray-900">1,750,000 SEK</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {ValidationUtils.formatCurrency(totalAssets)}
+              </p>
             </div>
           </div>
         </Card>
@@ -101,12 +126,14 @@ const FinancialOverview: React.FC = () => {
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-5 h-5 text-blue-600" />
+                <DollarSign className="w-5 h-5 text-blue-600" />
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Outstanding Invoices</p>
-              <p className="text-2xl font-bold text-gray-900">156,250 SEK</p>
+              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {ValidationUtils.formatCurrency(totalRevenue)}
+              </p>
             </div>
           </div>
         </Card>
@@ -115,12 +142,12 @@ const FinancialOverview: React.FC = () => {
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <CreditCard className="w-5 h-5 text-yellow-600" />
+                <FileText className="w-5 h-5 text-yellow-600" />
               </div>
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
-              <p className="text-2xl font-bold text-gray-900">3</p>
+              <p className="text-2xl font-bold text-gray-900">{pendingExpenses}</p>
             </div>
           </div>
         </Card>
@@ -129,12 +156,14 @@ const FinancialOverview: React.FC = () => {
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 text-purple-600" />
+                <Calculator className="w-5 h-5 text-purple-600" />
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Monthly Payroll</p>
-              <p className="text-2xl font-bold text-gray-900">129,000 SEK</p>
+              <p className="text-sm font-medium text-gray-600">Total Expenses</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {ValidationUtils.formatCurrency(totalExpenseAmount)}
+              </p>
             </div>
           </div>
         </Card>
@@ -152,7 +181,7 @@ const FinancialOverview: React.FC = () => {
                   <p className="text-sm text-gray-600">BAS-compliant account structure</p>
                 </div>
               </div>
-              <span className="text-sm text-gray-500">45 accounts</span>
+              <span className="text-sm text-gray-500">{accounts.length} accounts</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div className="flex items-center space-x-3">
@@ -162,103 +191,189 @@ const FinancialOverview: React.FC = () => {
                   <p className="text-sm text-gray-600">Automated and manual entries</p>
                 </div>
               </div>
-              <span className="text-sm text-gray-500">127 entries</span>
+              <span className="text-sm text-gray-500">{journalEntries.length} entries</span>
             </div>
           </div>
         </Card>
 
-        <Card title="Invoicing System" subtitle="Professional invoicing with Swedish tax compliance">
+        <Card title="Expense Management" subtitle="Track and approve foundation expenses">
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-3 border-l-4 border-blue-400 bg-blue-50 rounded-r-lg">
+            <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
               <div>
-                <p className="font-medium text-gray-900">Sales Invoices</p>
-                <p className="text-sm text-gray-600">2 sent, 156,250 SEK outstanding</p>
+                <p className="font-medium text-gray-900">Pending Expenses</p>
+                <p className="text-sm text-gray-600">Awaiting approval</p>
               </div>
-              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
-                Active
+              <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full">
+                {pendingExpenses}
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 border-l-4 border-green-400 bg-green-50 rounded-r-lg">
+            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
               <div>
-                <p className="font-medium text-gray-900">Purchase Invoices</p>
-                <p className="text-sm text-gray-600">Automated processing & approval</p>
+                <p className="font-medium text-gray-900">Total Expenses</p>
+                <p className="text-sm text-gray-600">All submitted expenses</p>
               </div>
-              <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
-                Automated
+              <span className="text-sm font-medium text-gray-900">
+                {ValidationUtils.formatCurrency(totalExpenseAmount)}
               </span>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* BankID & Security */}
-      <Card title="Security & Authentication" subtitle="BankID integration for secure financial operations">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Shield className="w-8 h-8 text-blue-600" />
+      {/* Account Balance Summary */}
+      <Card title="Account Balances" subtitle="Current balances by account type">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+              <span className="text-sm text-gray-900">Assets</span>
             </div>
-            <h3 className="font-medium text-gray-900">BankID Authentication</h3>
-            <p className="text-sm text-gray-600">Secure user verification for financial transactions</p>
+            <span className="text-sm font-medium text-gray-900">
+              {ValidationUtils.formatCurrency(totalAssets)}
+            </span>
           </div>
-          <div className="text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <FileText className="w-8 h-8 text-green-600" />
+          <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <FileText className="w-5 h-5 text-red-600" />
+              <span className="text-sm text-gray-900">Liabilities</span>
             </div>
-            <h3 className="font-medium text-gray-900">Digital Signatures</h3>
-            <p className="text-sm text-gray-600">Legally binding signatures for invoices and contracts</p>
+            <span className="text-sm font-medium text-gray-900">
+              {ValidationUtils.formatCurrency(totalLiabilities)}
+            </span>
           </div>
-          <div className="text-center">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Building className="w-8 h-8 text-purple-600" />
+          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <Shield className="w-5 h-5 text-blue-600" />
+              <span className="text-sm text-gray-900">Equity</span>
             </div>
-            <h3 className="font-medium text-gray-900">Audit Trails</h3>
-            <p className="text-sm text-gray-600">Complete financial activity logging and compliance</p>
+            <span className="text-sm font-medium text-gray-900">
+              {ValidationUtils.formatCurrency(totalEquity)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <Calculator className="w-5 h-5 text-purple-600" />
+              <span className="text-sm text-gray-900">Net Worth</span>
+            </div>
+            <span className="text-sm font-medium text-gray-900">
+              {ValidationUtils.formatCurrency(totalAssets - totalLiabilities)}
+            </span>
           </div>
         </div>
       </Card>
 
-      {/* Bank Integration */}
-      <Card title="Bank Integration" subtitle="Connect with Swedish banks for automated transaction import">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm text-gray-900">Swedbank - Foundation Operating Account</span>
+      {/* Recent Activity */}
+      <Card title="Recent Financial Activity" subtitle="Latest transactions and entries">
+        <div className="space-y-3">
+          {journalEntries.slice(0, 5).map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div>
+                <p className="font-medium text-gray-900">{entry.entry_number}</p>
+                <p className="text-sm text-gray-600">{entry.description}</p>
+                <p className="text-xs text-gray-500">
+                  {new Date(entry.entry_date).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900">
+                  {ValidationUtils.formatCurrency(entry.total_debit)}
+                </p>
+                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                  entry.status === 'posted' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {entry.status}
+                </span>
+              </div>
             </div>
-            <span className="text-sm font-medium text-gray-900">1,250,000 SEK</span>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm text-gray-900">Handelsbanken - Foundation Savings</span>
+          ))}
+          {journalEntries.length === 0 && (
+            <div className="text-center py-4 text-gray-500">
+              No journal entries yet
             </div>
-            <span className="text-sm font-medium text-gray-900">500,000 SEK</span>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-              <span className="text-sm text-gray-900">3 unreconciled transactions</span>
-            </div>
-            <span className="text-xs text-gray-500">Requires attention</span>
-          </div>
+          )}
         </div>
       </Card>
     </div>
   );
 };
 
-const ExpenseManagementPlaceholder: React.FC = () => {
+const ExpenseManagementModule: React.FC<{ expenses: any[] }> = ({ expenses }) => {
+  const pendingExpenses = expenses.filter(exp => exp.status === 'pending');
+  const approvedExpenses = expenses.filter(exp => exp.status === 'approved');
+  const rejectedExpenses = expenses.filter(exp => exp.status === 'rejected');
+  
   return (
-    <div className="text-center py-12">
-      <DollarSign className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-      <h3 className="text-lg font-medium text-gray-900 mb-2">Expense Management</h3>
-      <p className="text-gray-600 mb-4">
-        Enhanced expense management module will be integrated here, building upon the existing expense tracking functionality.
-      </p>
-      <p className="text-sm text-gray-500">
-        This will include receipt scanning, automated categorization, approval workflows, and integration with the bookkeeping system.
-      </p>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <div className="text-center">
+            <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+              <Clock className="w-6 h-6 text-yellow-600" />
+            </div>
+            <h3 className="font-medium text-gray-900">Pending Review</h3>
+            <p className="text-2xl font-bold text-yellow-600">{pendingExpenses.length}</p>
+            <p className="text-sm text-gray-600">
+              {ValidationUtils.formatCurrency(
+                pendingExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+              )}
+            </p>
+          </div>
+        </Card>
+        
+        <Card>
+          <div className="text-center">
+            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+            <h3 className="font-medium text-gray-900">Approved</h3>
+            <p className="text-2xl font-bold text-green-600">{approvedExpenses.length}</p>
+            <p className="text-sm text-gray-600">
+              {ValidationUtils.formatCurrency(
+                approvedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+              )}
+            </p>
+          </div>
+        </Card>
+        
+        <Card>
+          <div className="text-center">
+            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+              <XCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <h3 className="font-medium text-gray-900">Rejected</h3>
+            <p className="text-2xl font-bold text-red-600">{rejectedExpenses.length}</p>
+            <p className="text-sm text-gray-600">
+              {ValidationUtils.formatCurrency(
+                rejectedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+              )}
+            </p>
+          </div>
+        </Card>
+      </div>
+      
+      <Card title="Expense Categories" subtitle="Breakdown by category">
+        <div className="space-y-3">
+          {Object.entries(
+            expenses.reduce((acc, expense) => {
+              const category = expense.category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+              acc[category] = (acc[category] || 0) + expense.amount;
+              return acc;
+            }, {} as Record<string, number>)
+          ).map(([category, amount]) => (
+            <div key={category} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+              <span className="text-sm text-gray-900">{category}</span>
+              <span className="text-sm font-medium text-gray-900">
+                {ValidationUtils.formatCurrency(amount)}
+              </span>
+            </div>
+          ))}
+          {expenses.length === 0 && (
+            <div className="text-center py-4 text-gray-500">
+              No expenses recorded yet
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 };

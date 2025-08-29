@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { getDefaultRoute } from './utils/permissions';
+import { useAuth } from './hooks/useAuth';
 import { LandingPage } from './pages/LandingPage';
 import { FoundationRegistrationPage } from './pages/FoundationRegistrationPage';
 import { RegistrationCompletePage } from './pages/RegistrationCompletePage';
@@ -30,31 +31,29 @@ import { GovernancePage } from './pages/GovernancePage';
 import { FinancialPage } from './pages/FinancialPage';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLimitedAccess, setIsLimitedAccess] = useState(false);
-  const [foundationVerified, setFoundationVerified] = useState(false);
-  const [userRole, setUserRole] = useState<string>('member');
+  const { user, loading, logout } = useAuth();
+  const isAuthenticated = !!user;
+  const userRole = user?.role || 'member';
 
-  const handleLogin = (role?: string) => {
-    setIsAuthenticated(true);
-    setUserRole(role || 'member');
-    
-    // All authenticated users get full access based on their role
-    setFoundationVerified(true);
-    setIsLimitedAccess(false);
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setIsLimitedAccess(false);
-    setFoundationVerified(false);
-    setUserRole('member');
+  const handleLogout = async () => {
+    await logout();
   };
 
   const handleFoundationSubmit = (data: any) => {
     console.log('Foundation data:', data);
     // This would normally send data to the backend
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -88,20 +87,6 @@ function App() {
           element={<RegistrationCompletePage />}
         />
 
-        {/* Limited Access Routes */}
-        <Route
-          path="/dashboard-limited"
-          element={
-            isAuthenticated && isLimitedAccess ? (
-              <LimitedLayout onLogout={handleLogout}>
-                <LimitedDashboardPage />
-              </LimitedLayout>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
         {/* Public Routes */}
         <Route
           path="/login"
@@ -110,7 +95,7 @@ function App() {
               <Navigate to={getDefaultRoute(userRole)} replace />
             ) : (
               <AuthLayout>
-                <LoginPage onLogin={handleLogin} />
+                <LoginPage />
               </AuthLayout>
             )
           }

@@ -3,9 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User } from 'lucide-react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import { useAuth } from '../hooks/useAuth';
+import { ValidationUtils } from '../utils/validation';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
+  const { register } = useAuth();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -21,15 +24,22 @@ export const RegisterPage: React.FC = () => {
     
     // Basic validation
     const newErrors: Record<string, string> = {};
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Full name is required';
+    
+    const nameValidation = ValidationUtils.validateRequired(formData.fullName, 'Full name');
+    if (!nameValidation.isValid) {
+      newErrors.fullName = nameValidation.error!;
     }
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
+    
+    const emailValidation = ValidationUtils.validateEmail(formData.email);
+    if (!emailValidation.isValid) {
+      newErrors.email = emailValidation.error!;
     }
-    if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    
+    const passwordValidation = ValidationUtils.validatePassword(formData.password);
+    if (!passwordValidation.isValid) {
+      newErrors.password = passwordValidation.error!;
     }
+    
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
@@ -41,11 +51,20 @@ export const RegisterPage: React.FC = () => {
     
     setLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await register(formData.email, formData.password, formData.fullName);
+      
+      if (response.success) {
+        navigate('/login');
+        alert('Registration successful! Please check your email to verify your account.');
+      } else {
+        setErrors({ email: response.error || 'Registration failed' });
+      }
+    } catch (error) {
+      setErrors({ email: 'Registration failed. Please try again.' });
+    } finally {
       setLoading(false);
-      navigate('/login');
-    }, 1000);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

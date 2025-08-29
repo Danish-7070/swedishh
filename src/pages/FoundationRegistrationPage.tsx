@@ -5,7 +5,8 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { Card } from '../components/Card';
 import { Modal } from '../components/Modal';
-import type { FoundationRegistration, BoardMember, ContactPerson, ComplianceCheck } from '../types/registration';
+import { foundationAPI, authAPI } from '../services/api';
+import { ValidationUtils } from '../utils/validation';
 
 export const FoundationRegistrationPage: React.FC = () => {
   const navigate = useNavigate();
@@ -13,8 +14,9 @@ export const FoundationRegistrationPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showBankIDModal, setShowBankIDModal] = useState(false);
   const [showComplianceModal, setShowComplianceModal] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   
-  const [registrationData, setRegistrationData] = useState<Partial<FoundationRegistration>>({
+  const [registrationData, setRegistrationData] = useState({
     foundation_name: '',
     purpose: '',
     registered_office_address: '',
@@ -23,11 +25,11 @@ export const FoundationRegistrationPage: React.FC = () => {
     country: 'Sweden',
     initial_capital: 0,
     currency: 'SEK',
-    board_members: [],
+    board_members: [] as any[],
     status: 'draft'
   });
 
-  const [contactPerson, setContactPerson] = useState<ContactPerson>({
+  const [contactPerson, setContactPerson] = useState({
     first_name: '',
     last_name: '',
     email: '',
@@ -36,7 +38,7 @@ export const FoundationRegistrationPage: React.FC = () => {
     is_authorized_representative: true
   });
 
-  const [complianceChecks, setComplianceChecks] = useState<ComplianceCheck[]>([]);
+  const [complianceChecks, setComplianceChecks] = useState<any[]>([]);
 
   const steps = [
     { id: 1, title: 'Basic Information', description: 'Foundation details and purpose' },
@@ -50,11 +52,88 @@ export const FoundationRegistrationPage: React.FC = () => {
 
   const handleBasicInfoSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate basic information
+    const newErrors: Record<string, string> = {};
+    
+    const nameValidation = ValidationUtils.validateFoundationName(registrationData.foundation_name);
+    if (!nameValidation.isValid) {
+      newErrors.foundation_name = nameValidation.error!;
+    }
+    
+    if (!registrationData.purpose || registrationData.purpose.length < 50) {
+      newErrors.purpose = 'Purpose must be at least 50 characters';
+    }
+    
+    const capitalValidation = ValidationUtils.validateCurrency(registrationData.initial_capital);
+    if (!capitalValidation.isValid) {
+      newErrors.initial_capital = capitalValidation.error!;
+    } else if (registrationData.initial_capital < 25000) {
+      newErrors.initial_capital = 'Minimum capital requirement is 25,000 SEK';
+    }
+    
+    if (!registrationData.registered_office_address.trim()) {
+      newErrors.registered_office_address = 'Address is required';
+    }
+    
+    if (!registrationData.postal_code.trim()) {
+      newErrors.postal_code = 'Postal code is required';
+    }
+    
+    if (!registrationData.city.trim()) {
+      newErrors.city = 'City is required';
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
     setCurrentStep(2);
   };
 
   const handleBoardMembersSubmit = () => {
     if (registrationData.board_members && registrationData.board_members.length >= 3) {
+      // Validate all board members
+      const memberErrors: string[] = [];
+      
+      registrationData.board_members.forEach((member, index) => {
+        if (!member.first_name.trim()) {
+          memberErrors.push(`Board member ${index + 1}: First name is required`);
+        }
+        if (!member.last_name.trim()) {
+          memberErrors.push(`Board member ${index + 1}: Last name is required`);
+        }
+        if (!member.email.trim()) {
+          memberErrors.push(`Board member ${index + 1}: Email is required`);
+        } else {
+          const emailValidation = ValidationUtils.validateEmail(member.email);
+          if (!emailValidation.isValid) {
+            memberErrors.push(`Board member ${index + 1}: ${emailValidation.error}`);
+          }
+        }
+        if (!member.personal_number.trim()) {
+          memberErrors.push(`Board member ${index + 1}: Personal number is required`);
+        } else {
+          const personalNumberValidation = ValidationUtils.validateSwedishPersonalNumber(member.personal_number);
+          if (!personalNumberValidation.isValid) {
+            memberErrors.push(`Board member ${index + 1}: ${personalNumberValidation.error}`);
+          }
+        }
+        if (!member.role) {
+          memberErrors.push(`Board member ${index + 1}: Role is required`);
+        }
+        if (!member.address.trim()) {
+          memberErrors.push(`Board member ${index + 1}: Address is required`);
+        }
+      });
+      
+      if (memberErrors.length > 0) {
+        alert('Please fix the following errors:\n\n' + memberErrors.join('\n'));
+        return;
+      }
+      
       setCurrentStep(3);
     } else {
       alert('A foundation requires at least 3 board members');
@@ -63,6 +142,38 @@ export const FoundationRegistrationPage: React.FC = () => {
 
   const handleContactPersonSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate contact person
+    const newErrors: Record<string, string> = {};
+    
+    if (!contactPerson.first_name.trim()) {
+      newErrors.first_name = 'First name is required';
+    }
+    
+    if (!contactPerson.last_name.trim()) {
+      newErrors.last_name = 'Last name is required';
+    }
+    
+    const emailValidation = ValidationUtils.validateEmail(contactPerson.email);
+    if (!emailValidation.isValid) {
+      newErrors.email = emailValidation.error!;
+    }
+    
+    const phoneValidation = ValidationUtils.validateSwedishPhone(contactPerson.phone);
+    if (!phoneValidation.isValid) {
+      newErrors.phone = phoneValidation.error!;
+    }
+    
+    if (!contactPerson.role.trim()) {
+      newErrors.role = 'Role is required';
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
     setCurrentStep(4);
     runComplianceChecks();
   };
@@ -72,7 +183,7 @@ export const FoundationRegistrationPage: React.FC = () => {
     
     // Simulate compliance checks
     setTimeout(() => {
-      const checks: ComplianceCheck[] = [
+      const checks = [
         {
           id: '1',
           check_type: 'minimum_capital',
@@ -106,6 +217,15 @@ export const FoundationRegistrationPage: React.FC = () => {
           status: 'passed',
           details: 'Foundation name is available and compliant',
           checked_at: new Date().toISOString()
+        },
+        {
+          id: '5',
+          check_type: 'contact_person_validation',
+          status: contactPerson.email && contactPerson.phone ? 'passed' : 'failed',
+          details: contactPerson.email && contactPerson.phone
+            ? 'Contact person information is complete'
+            : 'Contact person information is incomplete',
+          checked_at: new Date().toISOString()
         }
       ];
       
@@ -124,7 +244,7 @@ export const FoundationRegistrationPage: React.FC = () => {
   };
 
   const addBoardMember = () => {
-    const newMember: BoardMember = {
+    const newMember = {
       id: Date.now().toString(),
       first_name: '',
       last_name: '',
@@ -143,7 +263,7 @@ export const FoundationRegistrationPage: React.FC = () => {
     }));
   };
 
-  const updateBoardMember = (index: number, field: keyof BoardMember, value: any) => {
+  const updateBoardMember = (index: number, field: string, value: any) => {
     setRegistrationData(prev => ({
       ...prev,
       board_members: prev.board_members?.map((member, i) => 
@@ -178,15 +298,40 @@ export const FoundationRegistrationPage: React.FC = () => {
     setCurrentStep(7);
   };
 
-  const submitToAuthorities = () => {
+  const submitToAuthorities = async () => {
     setLoading(true);
     
-    // Simulate authority submission
-    setTimeout(() => {
+    try {
+      // Create foundation in database
+      const foundationResponse = await foundationAPI.createFoundation({
+        name: registrationData.foundation_name,
+        registration_number: `REG-${Date.now()}`,
+        description: registrationData.purpose,
+        address: `${registrationData.registered_office_address}, ${registrationData.postal_code} ${registrationData.city}`,
+        status: 'pending_verification'
+      });
+      
+      if (!foundationResponse.success) {
+        throw new Error(foundationResponse.error || 'Failed to create foundation');
+      }
+      
+      // Create user account for contact person
+      const userResponse = await authAPI.register(
+        contactPerson.email,
+        'TempPassword123!', // Temporary password - user will need to change it
+        `${contactPerson.first_name} ${contactPerson.last_name}`
+      );
+      
+      if (!userResponse.success) {
+        throw new Error(userResponse.error || 'Failed to create user account');
+      }
+      
       setLoading(false);
-      // Create foundation user account and redirect to limited dashboard
       navigate('/registration-complete');
-    }, 2000);
+    } catch (error) {
+      setLoading(false);
+      alert(error instanceof Error ? error.message : 'Registration failed');
+    }
   };
 
   const renderStepContent = () => {
@@ -196,6 +341,7 @@ export const FoundationRegistrationPage: React.FC = () => {
           data={registrationData} 
           onChange={setRegistrationData}
           onSubmit={handleBasicInfoSubmit}
+          errors={errors}
         />;
       case 2:
         return <BoardMembersStep 
@@ -210,6 +356,7 @@ export const FoundationRegistrationPage: React.FC = () => {
           data={contactPerson}
           onChange={setContactPerson}
           onSubmit={handleContactPersonSubmit}
+          errors={errors}
         />;
       case 4:
         return <ComplianceCheckStep 
@@ -323,10 +470,11 @@ export const FoundationRegistrationPage: React.FC = () => {
 
 // Step Components
 const BasicInformationStep: React.FC<{
-  data: Partial<FoundationRegistration>;
-  onChange: (data: Partial<FoundationRegistration>) => void;
+  data: any;
+  onChange: (data: any) => void;
   onSubmit: (e: React.FormEvent) => void;
-}> = ({ data, onChange, onSubmit }) => {
+  errors: Record<string, string>;
+}> = ({ data, onChange, onSubmit, errors }) => {
   const handleChange = (field: string, value: any) => {
     onChange({ ...data, [field]: value });
   };
@@ -340,15 +488,19 @@ const BasicInformationStep: React.FC<{
             value={data.foundation_name || ''}
             onChange={(e) => handleChange('foundation_name', e.target.value)}
             placeholder="Enter foundation name"
+            error={errors.foundation_name}
             required
           />
           <Input
             label="Initial Capital (SEK)"
             type="number"
+            min="25000"
+            step="0.01"
             value={data.initial_capital || ''}
             onChange={(e) => handleChange('initial_capital', parseFloat(e.target.value) || 0)}
             placeholder="25000"
             helperText="Minimum 25,000 SEK required"
+            error={errors.initial_capital}
             required
           />
         </div>
@@ -361,13 +513,18 @@ const BasicInformationStep: React.FC<{
             value={data.purpose || ''}
             onChange={(e) => handleChange('purpose', e.target.value)}
             rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
+              errors.purpose ? 'border-red-300' : 'border-gray-300'
+            }`}
             placeholder="Describe the foundation's charitable purpose and activities in detail..."
             required
           />
           <p className="text-sm text-gray-500 mt-1">
-            Minimum 50 characters required. Be specific about charitable activities.
+            {(data.purpose || '').length}/50 characters minimum. Be specific about charitable activities.
           </p>
+          {errors.purpose && (
+            <p className="text-sm text-red-600 mt-1">{errors.purpose}</p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -376,6 +533,7 @@ const BasicInformationStep: React.FC<{
             value={data.registered_office_address || ''}
             onChange={(e) => handleChange('registered_office_address', e.target.value)}
             placeholder="Street address"
+            error={errors.registered_office_address}
             required
           />
           <Input
@@ -383,6 +541,7 @@ const BasicInformationStep: React.FC<{
             value={data.postal_code || ''}
             onChange={(e) => handleChange('postal_code', e.target.value)}
             placeholder="12345"
+            error={errors.postal_code}
             required
           />
           <Input
@@ -390,6 +549,7 @@ const BasicInformationStep: React.FC<{
             value={data.city || ''}
             onChange={(e) => handleChange('city', e.target.value)}
             placeholder="Stockholm"
+            error={errors.city}
             required
           />
         </div>
@@ -405,9 +565,9 @@ const BasicInformationStep: React.FC<{
 };
 
 const BoardMembersStep: React.FC<{
-  boardMembers: BoardMember[];
+  boardMembers: any[];
   onAdd: () => void;
-  onUpdate: (index: number, field: keyof BoardMember, value: any) => void;
+  onUpdate: (index: number, field: string, value: any) => void;
   onRemove: (index: number) => void;
   onSubmit: () => void;
 }> = ({ boardMembers, onAdd, onUpdate, onRemove, onSubmit }) => {
@@ -443,12 +603,14 @@ const BoardMembersStep: React.FC<{
                   label="First Name"
                   value={member.first_name}
                   onChange={(e) => onUpdate(index, 'first_name', e.target.value)}
+                  placeholder="Enter first name"
                   required
                 />
                 <Input
                   label="Last Name"
                   value={member.last_name}
                   onChange={(e) => onUpdate(index, 'last_name', e.target.value)}
+                  placeholder="Enter last name"
                   required
                 />
                 <Input
@@ -456,6 +618,7 @@ const BoardMembersStep: React.FC<{
                   value={member.personal_number}
                   onChange={(e) => onUpdate(index, 'personal_number', e.target.value)}
                   placeholder="YYYYMMDD-XXXX"
+                  helperText="Format: 19801010-1234"
                   required
                 />
                 <Input
@@ -463,6 +626,7 @@ const BoardMembersStep: React.FC<{
                   type="email"
                   value={member.email}
                   onChange={(e) => onUpdate(index, 'email', e.target.value)}
+                  placeholder="email@example.com"
                   required
                 />
                 <Input
@@ -470,6 +634,7 @@ const BoardMembersStep: React.FC<{
                   value={member.phone || ''}
                   onChange={(e) => onUpdate(index, 'phone', e.target.value)}
                   placeholder="+46 70 123 45 67"
+                  helperText="Swedish phone number format"
                 />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -544,11 +709,12 @@ const BoardMembersStep: React.FC<{
 };
 
 const ContactPersonStep: React.FC<{
-  data: ContactPerson;
-  onChange: (data: ContactPerson) => void;
+  data: any;
+  onChange: (data: any) => void;
   onSubmit: (e: React.FormEvent) => void;
-}> = ({ data, onChange, onSubmit }) => {
-  const handleChange = (field: keyof ContactPerson, value: any) => {
+  errors: Record<string, string>;
+}> = ({ data, onChange, onSubmit, errors }) => {
+  const handleChange = (field: string, value: any) => {
     onChange({ ...data, [field]: value });
   };
 
@@ -567,12 +733,14 @@ const ContactPersonStep: React.FC<{
             label="First Name"
             value={data.first_name}
             onChange={(e) => handleChange('first_name', e.target.value)}
+            error={errors.first_name}
             required
           />
           <Input
             label="Last Name"
             value={data.last_name}
             onChange={(e) => handleChange('last_name', e.target.value)}
+            error={errors.last_name}
             required
           />
           <Input
@@ -580,6 +748,8 @@ const ContactPersonStep: React.FC<{
             type="email"
             value={data.email}
             onChange={(e) => handleChange('email', e.target.value)}
+            error={errors.email}
+            helperText="This will be used to create your account"
             required
           />
           <Input
@@ -587,6 +757,8 @@ const ContactPersonStep: React.FC<{
             value={data.phone}
             onChange={(e) => handleChange('phone', e.target.value)}
             placeholder="+46 70 123 45 67"
+            error={errors.phone}
+            helperText="Swedish phone number format"
             required
           />
         </div>
@@ -596,6 +768,7 @@ const ContactPersonStep: React.FC<{
           value={data.role}
           onChange={(e) => handleChange('role', e.target.value)}
           placeholder="e.g., Founder, Legal Representative"
+          error={errors.role}
           required
         />
 
@@ -627,7 +800,7 @@ const ContactPersonStep: React.FC<{
 
 const ComplianceCheckStep: React.FC<{
   loading: boolean;
-  checks: ComplianceCheck[];
+  checks: any[];
 }> = ({ loading, checks }) => {
   if (loading) {
     return (
@@ -919,7 +1092,7 @@ const AuthoritySubmissionStep: React.FC<{
 
 // Modal Components
 const ComplianceResults: React.FC<{
-  checks: ComplianceCheck[];
+  checks: any[];
   onComplete: () => void;
   onClose: () => void;
 }> = ({ checks, onComplete, onClose }) => {
