@@ -210,6 +210,7 @@ export const ExpensesPage: React.FC = () => {
                       <span>Date: {new Date(expense.expense_date).toLocaleDateString()}</span>
                       <span>Submitted: {new Date(expense.created_at).toLocaleDateString()}</span>
                       {expense.receipt_url && <span>📎 Receipt attached</span>}
+                      }
                     </div>
                   </div>
                 </div>
