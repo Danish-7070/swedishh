@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Plus, Search, Edit, Trash2, Calculator } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Calculator, Save, X } from 'lucide-react';
 import { Card } from '../Card';
 import { Button } from '../Button';
 import { Input } from '../Input';
 import { Modal } from '../Modal';
+import { financialAPI } from '../../services/api';
 
 interface Account {
   id: string;
@@ -15,70 +16,120 @@ interface Account {
   is_active: boolean;
 }
 
-interface JournalEntry {
+export interface JournalEntry {
   id: string;
+  foundation_id: string;
   entry_number: string;
   entry_date: string;
   description: string;
+  reference_number?: string;
   total_debit: number;
   total_credit: number;
   status: 'draft' | 'posted' | 'reversed';
+  created_by: string;
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
   line_items: JournalEntryLine[];
 }
 
-interface JournalEntryLine {
+export interface JournalEntryLine {
   id: string;
+  journal_entry_id: string;
+  account_id: string;
   account_name: string;
   description: string;
   debit_amount: number;
   credit_amount: number;
+  line_order: number;
 }
-
-const mockAccounts: Account[] = [
-  { id: '1', account_number: '1010', account_name: 'Cash', account_type: 'asset', balance: 150000, currency: 'SEK', is_active: true },
-  { id: '2', account_number: '1020', account_name: 'Bank Account', account_type: 'asset', balance: 500000, currency: 'SEK', is_active: true },
-  { id: '3', account_number: '2010', account_name: 'Accounts Payable', account_type: 'liability', balance: 25000, currency: 'SEK', is_active: true },
-  { id: '4', account_number: '3010', account_name: 'Foundation Capital', account_type: 'equity', balance: 1000000, currency: 'SEK', is_active: true },
-  { id: '5', account_number: '4010', account_name: 'Donation Revenue', account_type: 'revenue', balance: 200000, currency: 'SEK', is_active: true },
-  { id: '6', account_number: '5010', account_name: 'Office Expenses', account_type: 'expense', balance: 15000, currency: 'SEK', is_active: true }
-];
-
-const mockJournalEntries: JournalEntry[] = [
-  {
-    id: '1',
-    entry_number: 'JE-2024-001',
-    entry_date: '2024-03-15',
-    description: 'Monthly office rent payment',
-    total_debit: 12000,
-    total_credit: 12000,
-    status: 'posted',
-    line_items: [
-      { id: '1', account_name: 'Office Expenses', description: 'March rent', debit_amount: 12000, credit_amount: 0 },
-      { id: '2', account_name: 'Bank Account', description: 'Payment to landlord', debit_amount: 0, credit_amount: 12000 }
-    ]
-  },
-  {
-    id: '2',
-    entry_number: 'JE-2024-002',
-    entry_date: '2024-03-20',
-    description: 'Donation received',
-    total_debit: 50000,
-    total_credit: 50000,
-    status: 'posted',
-    line_items: [
-      { id: '3', account_name: 'Bank Account', description: 'Donation deposit', debit_amount: 50000, credit_amount: 0 },
-      { id: '4', account_name: 'Donation Revenue', description: 'Corporate donation', debit_amount: 0, credit_amount: 50000 }
-    ]
-  }
-];
 
 export const BookkeepingModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'accounts' | 'journal'>('accounts');
-  const [accounts] = useState<Account[]>(mockAccounts);
-  const [journalEntries] = useState<JournalEntry[]>(mockJournalEntries);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showJournalModal, setShowJournalModal] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Load data on component mount
+  React.useEffect(() => {
+    loadAccounts();
+    loadJournalEntries();
+  }, []);
+
+  const loadAccounts = async () => {
+    setLoading(true);
+    const response = await financialAPI.getAccounts();
+    if (response.success) {
+      setAccounts(response.data || []);
+    }
+    setLoading(false);
+  };
+
+  const loadJournalEntries = async () => {
+    setLoading(true);
+    const response = await financialAPI.getJournalEntries();
+    if (response.success) {
+      setJournalEntries(response.data || []);
+    }
+    setLoading(false);
+  };
+
+  const handleCreateAccount = async (accountData: Partial<Account>) => {
+    const response = await financialAPI.createAccount(accountData);
+    if (response.success) {
+      await loadAccounts();
+      setShowAccountModal(false);
+    } else {
+      alert(response.error);
+    }
+  };
+
+  const handleUpdateAccount = async (id: string, updates: Partial<Account>) => {
+    const response = await financialAPI.updateAccount(id, updates);
+    if (response.success) {
+      await loadAccounts();
+      setEditingAccount(null);
+    } else {
+      alert(response.error);
+    }
+  };
+
+  const handleDeleteAccount = async (id: string) => {
+    if (confirm('Are you sure you want to delete this account?')) {
+      const response = await financialAPI.deleteAccount(id);
+      if (response.success) {
+        await loadAccounts();
+      } else {
+        alert(response.error);
+      }
+    }
+  };
+
+  const handleCreateJournalEntry = async (entryData: any) => {
+    const response = await financialAPI.createJournalEntry(entryData);
+    if (response.success) {
+      await loadJournalEntries();
+      setShowJournalModal(false);
+    } else {
+      alert(response.error);
+    }
+  };
+
+  const handleUpdateJournalEntry = async (id: string, updates: any) => {
+    const response = await financialAPI.updateJournalEntry(id, updates);
+    if (response.success) {
+      await loadJournalEntries();
+      setEditingEntry(null);
+    } else {
+      alert(response.error);
+    }
+  };
 
   const filteredAccounts = accounts.filter(account =>
     account.account_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -194,9 +245,17 @@ export const BookkeepingModule: React.FC = () => {
                   <tr key={account.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {account.account_number} - {account.account_name}
-                        </div>
+                        {editingAccount?.id === account.id ? (
+                          <EditAccountRow 
+                            account={account}
+                            onSave={(updates) => handleUpdateAccount(account.id, updates)}
+                            onCancel={() => setEditingAccount(null)}
+                          />
+                        ) : (
+                          <div className="text-sm font-medium text-gray-900">
+                            {account.account_number} - {account.account_name}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -216,11 +275,19 @@ export const BookkeepingModule: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center space-x-2">
-                        <Button variant="ghost" size="sm" icon={Edit}>
-                          Edit
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          icon={Edit}
+                          onClick={() => setEditingAccount(account)}
+                        >
                         </Button>
-                        <Button variant="ghost" size="sm" icon={Trash2}>
-                          Delete
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          icon={Trash2}
+                          onClick={() => handleDeleteAccount(account.id)}
+                        >
                         </Button>
                       </div>
                     </td>
@@ -249,8 +316,12 @@ export const BookkeepingModule: React.FC = () => {
                   <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(entry.status)}`}>
                     {entry.status}
                   </span>
-                  <Button variant="ghost" size="sm" icon={Edit}>
-                    Edit
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    icon={Edit}
+                    onClick={() => setEditingEntry(entry)}
+                  >
                   </Button>
                 </div>
               </div>
@@ -316,7 +387,10 @@ export const BookkeepingModule: React.FC = () => {
         title="Create New Account"
         size="md"
       >
-        <AccountForm onClose={() => setShowAccountModal(false)} />
+        <AccountForm 
+          onSubmit={handleCreateAccount}
+          onClose={() => setShowAccountModal(false)} 
+        />
       </Modal>
 
       {/* Journal Entry Modal */}
@@ -326,24 +400,98 @@ export const BookkeepingModule: React.FC = () => {
         title="Create Journal Entry"
         size="lg"
       >
-        <JournalEntryForm onClose={() => setShowJournalModal(false)} />
+        <JournalEntryForm 
+          accounts={accounts}
+          onSubmit={handleCreateJournalEntry}
+          onClose={() => setShowJournalModal(false)} 
+        />
+      </Modal>
+
+      {/* Edit Journal Entry Modal */}
+      <Modal
+        isOpen={!!editingEntry}
+        onClose={() => setEditingEntry(null)}
+        title="Edit Journal Entry"
+        size="lg"
+      >
+        {editingEntry && (
+          <JournalEntryForm 
+            entry={editingEntry}
+            accounts={accounts}
+            onSubmit={(data) => handleUpdateJournalEntry(editingEntry.id, data)}
+            onClose={() => setEditingEntry(null)} 
+          />
+        )}
       </Modal>
     </div>
   );
 };
 
-const AccountForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const EditAccountRow: React.FC<{
+  account: Account;
+  onSave: (updates: Partial<Account>) => void;
+  onCancel: () => void;
+}> = ({ account, onSave, onCancel }) => {
   const [formData, setFormData] = useState({
-    account_number: '',
-    account_name: '',
-    account_type: '',
-    currency: 'SEK'
+    account_name: account.account_name,
+    account_type: account.account_type,
+    is_active: account.is_active
   });
+
+  const handleSave = () => {
+    onSave(formData);
+  };
+
+  return (
+    <div className="flex items-center space-x-2">
+      <input
+        value={formData.account_name}
+        onChange={(e) => setFormData(prev => ({ ...prev, account_name: e.target.value }))}
+        className="text-sm border rounded px-2 py-1"
+      />
+      <select
+        value={formData.account_type}
+        onChange={(e) => setFormData(prev => ({ ...prev, account_type: e.target.value }))}
+        className="text-sm border rounded px-2 py-1"
+      >
+        <option value="asset">Asset</option>
+        <option value="liability">Liability</option>
+        <option value="equity">Equity</option>
+        <option value="revenue">Revenue</option>
+        <option value="expense">Expense</option>
+      </select>
+      <Button size="sm" icon={Save} onClick={handleSave} />
+      <Button size="sm" variant="ghost" icon={X} onClick={onCancel} />
+    </div>
+  );
+};
+
+const AccountForm: React.FC<{ 
+  account?: Account;
+  onSubmit: (data: Partial<Account>) => void;
+  onClose: () => void;
+}> = ({ account, onSubmit, onClose }) => {
+  const [formData, setFormData] = useState({
+    foundation_id: '', // Will be set from context
+    account_number: account?.account_number || '',
+    account_name: account?.account_name || '',
+    account_type: account?.account_type || '',
+    currency: account?.currency || 'SEK'
+  });
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    onClose();
+    setLoading(true);
+    
+    // Get foundation ID from localStorage for demo
+    const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+    const foundationId = '1'; // Default foundation for demo
+    
+    onSubmit({
+      ...formData,
+      foundation_id: foundationId
+    });
   };
 
   return (
@@ -388,36 +536,101 @@ const AccountForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <Button type="button" variant="secondary" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit">
-          Create Account
+        <Button type="submit" loading={loading}>
+          {account ? 'Update Account' : 'Create Account'}
         </Button>
       </div>
     </form>
   );
 };
 
-const JournalEntryForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const JournalEntryForm: React.FC<{ 
+  entry?: JournalEntry;
+  accounts: Account[];
+  onSubmit: (data: any) => void;
+  onClose: () => void;
+}> = ({ entry, accounts, onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
-    entry_date: new Date().toISOString().split('T')[0],
-    description: '',
+    foundation_id: '', // Will be set from context
+    entry_date: entry?.entry_date || new Date().toISOString().split('T')[0],
+    description: entry?.description || '',
+    reference_number: entry?.reference_number || '',
     line_items: [
-      { account_name: '', description: '', debit_amount: 0, credit_amount: 0 },
-      { account_name: '', description: '', debit_amount: 0, credit_amount: 0 }
+      { account_id: '', description: '', debit_amount: 0, credit_amount: 0 },
+      { account_id: '', description: '', debit_amount: 0, credit_amount: 0 }
     ]
   });
+  const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (entry) {
+      setFormData({
+        foundation_id: entry.foundation_id,
+        entry_date: entry.entry_date,
+        description: entry.description,
+        reference_number: entry.reference_number || '',
+        line_items: entry.line_items.map(line => ({
+          account_id: line.account_id,
+          description: line.description,
+          debit_amount: line.debit_amount,
+          credit_amount: line.credit_amount
+        }))
+      });
+    }
+  }, [entry]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission
-    onClose();
+    setLoading(true);
+    
+    // Get foundation ID from localStorage for demo
+    const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+    const foundationId = '1'; // Default foundation for demo
+    
+    // Validate that debits equal credits
+    const totalDebits = formData.line_items.reduce((sum, item) => sum + (item.debit_amount || 0), 0);
+    const totalCredits = formData.line_items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
+    
+    if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      alert('Debits must equal credits');
+      setLoading(false);
+      return;
+    }
+    
+    onSubmit({
+      ...formData,
+      foundation_id: foundationId
+    });
   };
 
   const addLineItem = () => {
     setFormData(prev => ({
       ...prev,
-      line_items: [...prev.line_items, { account_name: '', description: '', debit_amount: 0, credit_amount: 0 }]
+      line_items: [...prev.line_items, { account_id: '', description: '', debit_amount: 0, credit_amount: 0 }]
     }));
   };
+
+  const removeLineItem = (index: number) => {
+    if (formData.line_items.length > 2) {
+      setFormData(prev => ({
+        ...prev,
+        line_items: prev.line_items.filter((_, i) => i !== index)
+      }));
+    }
+  };
+
+  const updateLineItem = (index: number, field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      line_items: prev.line_items.map((item, i) => 
+        i === index ? { ...item, [field]: value } : item
+      )
+    }));
+  };
+
+  const totalDebits = formData.line_items.reduce((sum, item) => sum + (item.debit_amount || 0), 0);
+  const totalCredits = formData.line_items.reduce((sum, item) => sum + (item.credit_amount || 0), 0);
+  const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -429,13 +642,21 @@ const JournalEntryForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           onChange={(e) => setFormData(prev => ({ ...prev, entry_date: e.target.value }))}
           required
         />
-        <Input
+        <div className="space-y-1">
+          <Input
           label="Description"
           value={formData.description}
           onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
           placeholder="Journal entry description"
           required
-        />
+          />
+          <Input
+            label="Reference Number (Optional)"
+            value={formData.reference_number}
+            onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
+            placeholder="Reference number"
+          />
+        </div>
       </div>
 
       <div>
@@ -443,58 +664,74 @@ const JournalEntryForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <label className="block text-sm font-medium text-gray-700">
             Line Items
           </label>
-          <Button type="button" size="sm" onClick={addLineItem}>
-            Add Line
-          </Button>
+          <div className="flex space-x-2">
+            <Button type="button" size="sm" onClick={addLineItem}>
+              Add Line
+            </Button>
+            <div className={`text-sm px-2 py-1 rounded ${isBalanced ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {isBalanced ? 'Balanced' : 'Unbalanced'}
+            </div>
+          </div>
         </div>
         
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-60 overflow-y-auto">
           {formData.line_items.map((line, index) => (
-            <div key={index} className="grid grid-cols-4 gap-2 p-2 border rounded">
-              <input
-                placeholder="Account"
+            <div key={index} className="grid grid-cols-5 gap-2 p-2 border rounded">
+              <select
+                value={line.account_id}
+                onChange={(e) => updateLineItem(index, 'account_id', e.target.value)}
                 className="px-2 py-1 border rounded text-sm"
-                value={line.account_name}
-                onChange={(e) => {
-                  const newLines = [...formData.line_items];
-                  newLines[index].account_name = e.target.value;
-                  setFormData(prev => ({ ...prev, line_items: newLines }));
-                }}
-              />
+                required
+              >
+                <option value="">Select Account</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.account_number} - {account.account_name}
+                  </option>
+                ))}
+              </select>
               <input
                 placeholder="Description"
                 className="px-2 py-1 border rounded text-sm"
                 value={line.description}
-                onChange={(e) => {
-                  const newLines = [...formData.line_items];
-                  newLines[index].description = e.target.value;
-                  setFormData(prev => ({ ...prev, line_items: newLines }));
-                }}
+                onChange={(e) => updateLineItem(index, 'description', e.target.value)}
               />
               <input
                 type="number"
+                step="0.01"
                 placeholder="Debit"
                 className="px-2 py-1 border rounded text-sm"
                 value={line.debit_amount || ''}
-                onChange={(e) => {
-                  const newLines = [...formData.line_items];
-                  newLines[index].debit_amount = parseFloat(e.target.value) || 0;
-                  setFormData(prev => ({ ...prev, line_items: newLines }));
-                }}
+                onChange={(e) => updateLineItem(index, 'debit_amount', parseFloat(e.target.value) || 0)}
               />
               <input
                 type="number"
+                step="0.01"
                 placeholder="Credit"
                 className="px-2 py-1 border rounded text-sm"
                 value={line.credit_amount || ''}
-                onChange={(e) => {
-                  const newLines = [...formData.line_items];
-                  newLines[index].credit_amount = parseFloat(e.target.value) || 0;
-                  setFormData(prev => ({ ...prev, line_items: newLines }));
-                }}
+                onChange={(e) => updateLineItem(index, 'credit_amount', parseFloat(e.target.value) || 0)}
               />
+              {formData.line_items.length > 2 && (
+                <Button 
+                  type="button" 
+                  size="sm" 
+                  variant="ghost" 
+                  icon={X}
+                  onClick={() => removeLineItem(index)}
+                />
+              )}
             </div>
           ))}
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4 text-sm font-medium">
+          <div className="text-right">
+            Total Debits: {totalDebits.toLocaleString('sv-SE')} SEK
+          </div>
+          <div className="text-right">
+            Total Credits: {totalCredits.toLocaleString('sv-SE')} SEK
+          </div>
         </div>
       </div>
 
@@ -502,8 +739,8 @@ const JournalEntryForm: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <Button type="button" variant="secondary" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit">
-          Create Entry
+        <Button type="submit" loading={loading} disabled={!isBalanced}>
+          {entry ? 'Update Entry' : 'Create Entry'}
         </Button>
       </div>
     </form>
